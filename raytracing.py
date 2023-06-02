@@ -117,6 +117,42 @@ def trace_ray(rayO, rayD):
     col_ray += obj.get('specular_c', specular_c) * max(np.dot(N, normalize(toL + toO)), 0) ** specular_k * color_light
     return obj, M, N, col_ray
 
+def trace_ray_multiple_lights(rayO, rayD, lights):
+    # Find first point of intersection with the scene.
+    t = np.inf
+    for i, obj in enumerate(scene):
+        t_obj = intersect(rayO, rayD, obj)
+        if t_obj < t:
+            t, obj_idx = t_obj, i
+    # Return None if the ray does not intersect any object.
+    if t == np.inf:
+        return 
+    # Find the object.
+    obj = scene[obj_idx]
+    # Find the point of intersection on the object.
+    M = rayO + rayD * t
+    # Find properties of the object.
+    N = get_normal(obj, M)
+    color = get_color(obj, M)
+   # Start computing the color.
+    col_ray = ambient
+
+    for light in lights:
+        L, color_light = light
+        toL = normalize(L - M)
+        toO = normalize(O - M)
+        # Shadow: find if the point is shadowed or not.
+        l = [intersect(M + N * .0001, toL, obj_sh) 
+                for k, obj_sh in enumerate(scene) if k != obj_idx]
+        if l and min(l) < np.inf:
+            continue
+        # Lambert shading (diffuse).
+        col_ray += obj.get('diffuse_c', diffuse_c) * max(np.dot(N, toL), 0) * color
+        # Blinn-Phong shading (specular).
+        col_ray += obj.get('specular_c', specular_c) * max(np.dot(N, normalize(toL + toO)), 0) ** specular_k * color_light
+    return obj, M, N, col_ray
+
+
 
 def add_sphere(position, radius, color):
     return dict(type='sphere', position=np.array(position),
@@ -139,10 +175,26 @@ scene = [add_sphere([.75, .1, 1.], .6, [0., 0., 1.]),
          add_sphere([-2.75, .1, 3.5], .6, [1., .572, .184]),
          add_plane([0., -.5, 0.], [0., 1., 0.]),
          ]
-
+         
+'''scene = [add_sphere([.75, .1, 1.], .6, [0., 0., 1.]),
+         add_plane([0., -.5, 0.], [0., 1., 0.]),
+         ]'''
+ 
 # Light position and color.
-L = np.array([5., 5., -10.])
-color_light = np.ones(3)
+L_1 = np.array([5., 5., -10.])
+color_light_1 = np.array([1., 1., 1.])  # White light 
+
+L_2 = np.array([-10., 10., 20.]) 
+color_light_2 = np.array([1., 0., 0.])  # Red light
+
+L_3 = np.array([10., 15., 40.]) 
+color_light_3 = np.array([0., 1., 0.])  # Green light
+
+L_4 = np.array([20., 5., -5.]) 
+color_light_4 = np.array([1., 0.5, 0.])  # Orange light
+
+lights = [(L_1, color_light_1), (L_2, color_light_2), (L_3, color_light_3), (L_4, color_light_4)]
+
 
 # Default light and material parameters.
 ambient = .05
@@ -173,7 +225,7 @@ for i, x in enumerate(np.linspace(S[0], S[2], w)):
         reflection = 1.
         # Loop through initial and secondary rays.
         while depth < depth_max:
-            traced = trace_ray(rayO, rayD)
+            traced = trace_ray_multiple_lights(rayO, rayD, lights)
             if not traced:
                 break
             obj, M, N, col_ray = traced
