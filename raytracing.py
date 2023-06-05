@@ -61,13 +61,49 @@ def intersect_sphere(O, D, S, R):
             return t1 if t0 < 0 else t0
     return np.inf
 
+def intersect_triangle(O, D, triangle):
+    # Trumbore Algorithm
+    vertex0, vertex1, vertex2 = triangle['vertex']
+    eps = 0.00001
+    edge1 = vertex1 - vertex0
+    edge2 = vertex2 - vertex0
+    pvec = np.cross(D, edge2)
+    det = edge1.dot(pvec)
+    if abs(det) < eps:
+        return np.inf
+    inv_det = 1. / det
+    tvec = O - vertex0
+    u = tvec.dot(pvec) * inv_det
+    if u < 0. or u > 1.:
+        return np.inf
+    qvec = np.cross(tvec, edge1)
+    v = D.dot(qvec) * inv_det
+    if v < 0. or u + v > 1.:
+        return np.inf
+    t = edge2.dot(qvec) * inv_det
+    if t < eps:
+        return np.inf
+
+    hit = O + t * D
+    dist = np.linalg.norm(O - hit)
+
+    return float(dist)
 
 def intersect(O, D, obj):
     if obj['type'] == 'plane':
         return intersect_plane(O, D, obj['position'], obj['normal'])
     elif obj['type'] == 'sphere':
         return intersect_sphere(O, D, obj['position'], obj['radius'])
+    elif obj['type'] == 'triangle':
+        return intersect_triangle(O, D, obj)
 
+
+'''def intersect(O, D, obj):
+    if obj['type'] == 'plane':
+        return intersect_plane(O, D, obj['position'], obj['normal'])
+    elif obj['type'] == 'sphere':
+        return intersect_sphere(O, D, obj['position'], obj['radius'])
+'''
 
 def get_normal(obj, M):
     # Find normal.
@@ -75,6 +111,10 @@ def get_normal(obj, M):
         N = normalize(M - obj['position'])
     elif obj['type'] == 'plane':
         N = obj['normal']
+    elif obj['type'] == 'triangle':
+        N = obj['normal']
+    else:
+        N = None
     return N
 
 
@@ -117,7 +157,7 @@ def trace_ray(rayO, rayD):
     col_ray += obj.get('specular_c', specular_c) * max(np.dot(N, normalize(toL + toO)), 0) ** specular_k * color_light
     return obj, M, N, col_ray
 
-def trace_ray_multiple_lights(rayO, rayD, lights):
+def trace_ray_multiple_lights(rayO, rayD, lights, scene):
     # Find first point of intersection with the scene.
     t = np.inf
     for i, obj in enumerate(scene):
@@ -140,14 +180,15 @@ def trace_ray_multiple_lights(rayO, rayD, lights):
     for light in lights:
         L, color_light = light
         toL = normalize(L - M)
-        toO = normalize(O - M)
+        toO = normalize(rayO - M)
         # Shadow: find if the point is shadowed or not.
         l = [intersect(M + N * .0001, toL, obj_sh) 
                 for k, obj_sh in enumerate(scene) if k != obj_idx]
         if l and min(l) < np.inf:
             continue
+        if N is not None:
         # Lambert shading (diffuse).
-        col_ray += obj.get('diffuse_c', diffuse_c) * max(np.dot(N, toL), 0) * color
+            col_ray += obj.get('diffuse_c', diffuse_c) * max(np.dot(N, toL), 0) * color
         # Blinn-Phong shading (specular).
         col_ray += obj.get('specular_c', specular_c) * max(np.dot(N, normalize(toL + toO)), 0) ** specular_k * color_light
     return obj, M, N, col_ray
@@ -166,20 +207,35 @@ def add_plane(position, normal):
                                  if (int(M[0] * 2) % 2) == (int(M[2] * 2) % 2) else color_plane1),
                 diffuse_c=.75, specular_c=.5, reflection=.25)
 
+def add_triangle(position, normal, vertex, color, diffuse_c=1., specular_c=1., reflection=0.):
+    return {
+        'type': 'triangle',
+        'position': np.array(position),
+        'normal': np.array(normal),
+        'vertex': np.array(vertex),
+        'color': np.array(color),
+        'diffuse_c': diffuse_c,
+        'specular_c': specular_c,
+        'reflection': reflection
+    }
 
 # List of objects.
 color_plane0 = 1. * np.ones(3)
 color_plane1 = 0. * np.ones(3)
-scene = [add_sphere([.75, .1, 1.], .6, [0., 0., 1.]),
+'''scene = [add_sphere([.75, .1, 1.], .6, [0., 0., 1.]),
          add_sphere([-.75, .1, 2.25], .6, [.5, .223, .5]),
          add_sphere([-2.75, .1, 3.5], .6, [1., .572, .184]),
          add_plane([0., -.5, 0.], [0., 1., 0.]),
          ]
-         
-'''scene = [add_sphere([.75, .1, 1.], .6, [0., 0., 1.]),
+ '''        
+
+
+scene = [add_sphere([.75, .1, 1.], .6, [0., 0., 1.]),
          add_plane([0., -.5, 0.], [0., 1., 0.]),
-         ]'''
- 
+         add_triangle([0.0, 0.0, 0.0], [0.0, 0.0, 1.0], [[-.25, 0., 1.], [0., .5, 1.], [.25, 0., 1.]], [1., 1., 0.])
+         ]
+
+
 # Light position and color.
 L_1 = np.array([5., 5., -10.])
 color_light_1 = np.array([1., 1., 1.])  # White light 
@@ -225,7 +281,7 @@ for i, x in enumerate(np.linspace(S[0], S[2], w)):
         reflection = 1.
         # Loop through initial and secondary rays.
         while depth < depth_max:
-            traced = trace_ray_multiple_lights(rayO, rayD, lights)
+            traced = trace_ray_multiple_lights(rayO, rayD, lights, scene)
             if not traced:
                 break
             obj, M, N, col_ray = traced
